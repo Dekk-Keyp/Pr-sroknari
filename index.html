@@ -177,74 +177,32 @@ function render(){
 function copyQuote(){
   if(!items.length){alert("Legg dekk til fyrst!");return;}
   var btn=document.getElementById("cpbtn");
+  var box=document.getElementById("cpbox");
   btn.textContent="Vent...";btn.disabled=true;
-  var sorted=items.slice().sort(function(a,b){
-    var ba=a.n.split(" ")[0],bb=b.n.split(" ")[0];
-    if(ba!==bb){
-      var minA=Math.min.apply(null,items.filter(function(x){return x.n.split(" ")[0]===ba;}).map(function(x){return x.m;}));
-      var minB=Math.min.apply(null,items.filter(function(x){return x.n.split(" ")[0]===bb;}).map(function(x){return x.m;}));
-      return minA-minB;
-    }
-    return a.m-b.m;
-  });
-  var scale=2,W=700,rowH=40,padX=30,padTop=24;
-  var logoH=55,titleY=padTop+logoH+26,lineY=titleY+10,tableY=lineY+28;
-  var H=tableY+rowH*(sorted.length+1)+48;
-  var cv=document.createElement("canvas");
-  cv.width=W*scale;cv.height=H*scale;
-  var ctx=cv.getContext("2d");
-  ctx.scale(scale,scale);
-  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,W,H);
-  function drawContent(){
-    var logoEl=document.getElementById("logoimg");
-    if(logoEl&&logoEl.complete){ctx.drawImage(logoEl,padX,padTop,165,logoH);}
-    ctx.fillStyle="#111";ctx.font="bold 13px system-ui,sans-serif";
-    ctx.textAlign="left";
-    ctx.fillText("TILBO\xd0",padX,titleY+4);
-    ctx.strokeStyle="#333";ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.moveTo(padX,lineY+8);ctx.lineTo(W-padX,lineY+8);ctx.stroke();
-    var y=tableY;
-    ctx.fillStyle="#999";ctx.font="10px system-ui,sans-serif";
-    ctx.fillText("MERKI",padX,y);
-    ctx.textAlign="right";
-    ctx.fillText("U/MVG",W-padX-130,y);
-    ctx.fillText("V/MVG",W-padX,y);
-    ctx.strokeStyle="#eee";ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(padX,y+8);ctx.lineTo(W-padX,y+8);ctx.stroke();
-    sorted.forEach(function(it,i){
-      var ry=y+rowH*(i+1);
-      ctx.fillStyle="#111";ctx.font="13px system-ui,sans-serif";
-      ctx.textAlign="left";
-      ctx.fillText(it.n.length>52?it.n.slice(0,50)+"...":it.n,padX,ry);
-      ctx.textAlign="right";
-      ctx.fillText(fi(it.u)+" kr.",W-padX-130,ry);
-      ctx.font="bold 13px system-ui,sans-serif";
-      ctx.fillText(fi(it.m)+" kr.",W-padX,ry);
-      ctx.strokeStyle="#f0f0f0";ctx.lineWidth=1;
-      ctx.beginPath();ctx.moveTo(padX,ry+10);ctx.lineTo(W-padX,ry+10);ctx.stroke();
-    });
-    ctx.fillStyle="#aaa";ctx.font="italic 11px system-ui,sans-serif";
-    ctx.textAlign="left";
-    ctx.fillText("Pr\xedsir eru galdandi so leingi dekkini eru t\xf8k \xe1 fjargoymslu.",padX,H-14);
-    cv.toBlob(function(blob){
-      if(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write){
+  html2canvas(box,{
+    scale:2,
+    backgroundColor:"#ffffff",
+    useCORS:true,
+    allowTaint:false,
+    logging:false
+  }).then(function(canvas){
+    canvas.toBlob(function(blob){
+      var tryClip=false;
+      try{tryClip=!!(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write);}catch(e){}
+      if(tryClip){
         navigator.clipboard.write([new ClipboardItem({"image/png":blob})]).then(function(){
           btn.textContent="Kopierad! \u2713";btn.style.color="#16a34a";
           setTimeout(function(){btn.textContent="Screenshot";btn.style.color="";btn.disabled=false;},3000);
-        }).catch(function(){doDownload(cv,btn);});
+        }).catch(function(){doDownload(canvas,btn);});
       } else {
-        doDownload(cv,btn);
+        doDownload(canvas,btn);
       }
     },"image/png");
-  }
-  var logoEl=document.getElementById("logoimg");
-  if(logoEl&&logoEl.complete){
-    drawContent();
-  } else if(logoEl){
-    logoEl.onload=drawContent;
-  } else {
-    drawContent();
-  }
+  }).catch(function(err){
+    console.error("html2canvas:",err);
+    btn.textContent="Villa!";btn.style.color="#dc2626";
+    setTimeout(function(){btn.textContent="Screenshot";btn.style.color="";btn.disabled=false;},2000);
+  });
 }
 function doDownload(cv,btn){
   var a=document.createElement("a");
@@ -268,5 +226,6 @@ function addDekk(){
 }
 
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
