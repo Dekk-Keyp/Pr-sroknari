@@ -177,32 +177,89 @@ function render(){
 function copyQuote(){
   if(!items.length){alert("Legg dekk til fyrst!");return;}
   var btn=document.getElementById("cpbtn");
-  var box=document.getElementById("cpbox");
   btn.textContent="Vent...";btn.disabled=true;
-  html2canvas(box,{
-    scale:2,
-    backgroundColor:"#ffffff",
-    useCORS:true,
-    allowTaint:false,
-    logging:false
-  }).then(function(canvas){
-    canvas.toBlob(function(blob){
-      var tryClip=false;
-      try{tryClip=!!(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write);}catch(e){}
-      if(tryClip){
-        navigator.clipboard.write([new ClipboardItem({"image/png":blob})]).then(function(){
-          btn.textContent="Kopierad! \u2713";btn.style.color="#16a34a";
-          setTimeout(function(){btn.textContent="Screenshot";btn.style.color="";btn.disabled=false;},3000);
-        }).catch(function(){doDownload(canvas,btn);});
-      } else {
-        doDownload(canvas,btn);
-      }
-    },"image/png");
-  }).catch(function(err){
-    console.error("html2canvas:",err);
-    btn.textContent="Villa!";btn.style.color="#dc2626";
-    setTimeout(function(){btn.textContent="Screenshot";btn.style.color="";btn.disabled=false;},2000);
+  var sorted=items.slice().sort(function(a,b){
+    var ba=a.n.split(" ")[0],bb=b.n.split(" ")[0];
+    if(ba!==bb){
+      var minA=Math.min.apply(null,items.filter(function(x){return x.n.split(" ")[0]===ba;}).map(function(x){return x.m;}));
+      var minB=Math.min.apply(null,items.filter(function(x){return x.n.split(" ")[0]===bb;}).map(function(x){return x.m;}));
+      return minA-minB;
+    }
+    return a.m-b.m;
   });
+  var dpr=window.devicePixelRatio||2;
+  var W=740,pad=32,rowH=44;
+  var logoH=64,gap=20;
+  var headerY=pad+logoH+gap;
+  var lineY=headerY+22;
+  var colY=lineY+28;
+  var dataY=colY+rowH;
+  var H=dataY+rowH*sorted.length+56;
+  var cv=document.createElement("canvas");
+  cv.width=W*dpr;cv.height=H*dpr;
+  var ctx=cv.getContext("2d");
+  ctx.scale(dpr,dpr);
+  // white bg with subtle border look
+  ctx.fillStyle="#f9f9f9";ctx.fillRect(0,0,W,H);
+  ctx.fillStyle="#ffffff";
+  ctx.beginPath();
+  ctx.roundRect?ctx.roundRect(12,12,W-24,H-24,8):ctx.rect(12,12,W-24,H-24);
+  ctx.fill();
+  // Logo
+  var logoEl=document.getElementById("logoimg");
+  if(logoEl&&logoEl.naturalWidth>0){ctx.drawImage(logoEl,pad,pad,logoH*2.8,logoH);}
+  // TILBOD heading
+  ctx.fillStyle="#111";ctx.font="bold 15px Arial,sans-serif";
+  ctx.textAlign="left";ctx.fillText("TILBO\xd0",pad,headerY+4);
+  // Divider line
+  ctx.strokeStyle="#222";ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(pad,lineY+6);ctx.lineTo(W-pad,lineY+6);ctx.stroke();
+  // Column headers
+  ctx.fillStyle="#999";ctx.font="10px Arial,sans-serif";
+  ctx.fillText("MERKI",pad,colY);
+  ctx.textAlign="right";
+  ctx.fillText("PRISUR U/MVG",W-pad-150,colY);
+  ctx.fillText("PRISUR V/MVG",W-pad,colY);
+  // Header bottom line
+  ctx.strokeStyle="#eee";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(pad,colY+8);ctx.lineTo(W-pad,colY+8);ctx.stroke();
+  // Rows
+  sorted.forEach(function(it,i){
+    var ry=dataY+rowH*i+rowH*0.65;
+    // Alternating bg
+    if(i%2===0){
+      ctx.fillStyle="#fafafa";
+      ctx.fillRect(pad-4,dataY+rowH*i+4,W-pad*2+8,rowH-4);
+    }
+    ctx.fillStyle="#111";ctx.font="14px Arial,sans-serif";
+    ctx.textAlign="left";
+    ctx.fillText(it.n.length>58?it.n.slice(0,56)+"...":it.n,pad,ry);
+    ctx.textAlign="right";
+    ctx.fillStyle="#555";ctx.font="14px Arial,sans-serif";
+    ctx.fillText(fi(it.u)+" kr.",W-pad-150,ry);
+    ctx.fillStyle="#111";ctx.font="bold 15px Arial,sans-serif";
+    ctx.fillText(fi(it.m)+" kr.",W-pad,ry);
+    // Row separator
+    ctx.strokeStyle="#eee";ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.moveTo(pad,dataY+rowH*(i+1));ctx.lineTo(W-pad,dataY+rowH*(i+1));ctx.stroke();
+  });
+  // Footer
+  ctx.fillStyle="#aaa";ctx.font="italic 11px Arial,sans-serif";
+  ctx.textAlign="left";
+  ctx.fillText("Pr\xedsir eru galdandi so leingi dekkini eru t\xf8k \xe1 fjargoymslu.",pad,H-20);
+  // Export
+  cv.toBlob(function(blob){
+    var tryClip=false;
+    try{tryClip=!!(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write);}catch(e){}
+    if(tryClip){
+      navigator.clipboard.write([new ClipboardItem({"image/png":blob})]).then(function(){
+        btn.textContent="Kopierad! \u2713";btn.style.color="#16a34a";
+        setTimeout(function(){btn.textContent="Screenshot";btn.style.color="";btn.disabled=false;},3000);
+      }).catch(function(){doDownload(cv,btn);});
+    } else {
+      doDownload(cv,btn);
+    }
+  },"image/png");
 }
 function doDownload(cv,btn){
   var a=document.createElement("a");
@@ -226,6 +283,5 @@ function addDekk(){
 }
 
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </body>
 </html>
