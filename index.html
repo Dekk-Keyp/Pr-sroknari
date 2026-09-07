@@ -132,7 +132,7 @@ function setSts(msg,col){
 }
 
 function loadCostSheet(){
-  return fetch('https://docs.google.com/spreadsheets/d/1s85HRQWHPU2mBQO_eNSBXwk_e7Qc0D32j4YCfsMYxPw/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View')
+  return fetch('https://docs.google.com/spreadsheets/d/1s85HRQWHPU2mBQO_eNSBXwk_e7Qc0D32j4YCfsMYxPw/gviz/tq?tqx=out:csv&gid=173403863')
     .then(function(r){if(!r.ok)throw new Error(r.status);return r.text();})
     .then(function(text){
       var lines=text.split('\n');
@@ -146,8 +146,8 @@ function loadCostSheet(){
       for(var i=1;i<lines.length;i++){
         if(!lines[i].trim())continue;
         var cols=parseCSVLine(lines[i]);
-        var ean=String(cols[eanIdx]||'').trim();
-        if(!ean||ean==='nan')continue;
+        var ean=String(cols[eanIdx]||'').trim().replace(/[^0-9]/g,'');
+        if(!ean)continue;
         var kost=parseNum(cols[veitaraIdx])+parseNum(cols[tollIdx])+parseNum(cols[avgjIdx])+parseNum(cols[shipIdx]);
         if(kost>0)costDB[ean]=Math.round(kost*100)/100;
       }
@@ -187,7 +187,7 @@ function loadMainSheet(){
         else continue;
         if(vmvg<=0)continue;
         var umvg=Math.round(vmvg/1.25);
-        var ean=String(cols[skuIdx]||'').trim();
+        var ean=String(cols[skuIdx]||'').trim().replace(/[^0-9]/g,'');
         var kost=costDB[ean]||0;
         var name=cols[nameIdx]||'';
         allData.push({
@@ -197,7 +197,7 @@ function loadMainSheet(){
           vmvg:vmvg,umvg:umvg,
           kost:kost,
           inStock:stock>0,
-          season:detectSeason(name,cats,attr)
+          season:(stock>0)?'winter':detectSeason(name,cats,attr)
         });
       }
     });
