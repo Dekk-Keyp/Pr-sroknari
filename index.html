@@ -258,6 +258,7 @@ function loadMainSheet(){
         if(!breidd||!profil||!tvormal){_skip('Vantar pa_breidd/pa_profil/pa_tvormal \u00ed Attributes');continue;}
         var stock=parseNum(cols[stockIdx]);
         var tokt=parseNum(cols[toktIdx]);
+        if(tokt<=0){_skip('T\u00f8kt \u00edalt = 0');continue;}
         var goymsluPris=parseNum(cols[goymsluIdx]);
         var regPris=parseNum(cols[priceIdx]);
         var vmvg;
