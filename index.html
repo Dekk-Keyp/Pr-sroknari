@@ -294,7 +294,7 @@ function loadAll(){
   loadCostSheet()
     .then(loadMainSheet)
     .then(function(){
-      setSts(allData.length.toLocaleString('da-DK')+' dekk ladin inn — '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v7 · '+allData.length.toLocaleString('da-DK')+' dekk ladin inn — '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
     })
     .catch(function(e){
@@ -348,7 +348,7 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
   tbody._axle=axleLabel;
   tbody.innerHTML=filtered.map(function(d,i){
     var stag=d.season==='winter'?'<span class="stag winter">Vetra</span>':d.season==='allseason'?'<span class="stag all">Heil\xe1r</span>':'<span class="stag summer">Summar</span>';
-    var stk=d.tokt>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.tokt+' stk</span>':'<span class="stag" style="background:#fee2e2;color:#dc2626">0 stk</span>';
+    var stk='<span class="stag" style="background:#dcfce7;color:#15803d">'+d.tokt+' stk</span>';
     var pu=d.noPrice?'<span style="color:#c2410c">vantar pr\u00eds</span>':fi(d.umvg)+' kr.';
     var pv=d.noPrice?'<span style="color:#c2410c">\u2014</span>':'<strong>'+fi(d.vmvg)+' kr.</strong>';
     return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
