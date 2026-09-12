@@ -171,6 +171,17 @@ function parseNum(s){
   var n=parseFloat(t);
   return isNaN(n)?0:n;
 }
+function norm(s){
+  return String(s||'').toLowerCase()
+    .replace(/\u00f8|\u00f6|\u00f3|\u00f2/g,'o')
+    .replace(/\u00ed|\u00ec|\u00ef/g,'i')
+    .replace(/\u00e1|\u00e0|\u00e4|\u00e5/g,'a')
+    .replace(/\u00e9|\u00e8/g,'e')
+    .replace(/\u00fa|\u00fc/g,'u')
+    .replace(/\u00fd/g,'y')
+    .replace(/\u00f0/g,'d')
+    .replace(/[^a-z0-9]/g,'');
+}
 function cleanEan(s){return String(s||'').replace(/[^0-9]/g,'');}
 
 function detectSeason(name,cats,attr){
@@ -240,8 +251,11 @@ function loadMainSheet(){
       var stockIdx=hdr.indexOf('stock');
       var skuIdx=hdr.findIndex(function(h){return h.indexOf('sku')>-1;});
       var goymsluIdx=hdr.findIndex(function(h){return h.indexOf('goymslu')>-1;});
-      var toktIdx=hdr.findIndex(function(h){return h.indexOf('t\u00f8kt')>-1;});
-      if(toktIdx===-1)toktIdx=hdr.findIndex(function(h){return h.indexOf('fjarlagur')>-1;});
+      var nh=hdr.map(norm);
+      var toktIdx=nh.findIndex(function(h){return h.indexOf('tokt')>-1;});
+      if(toktIdx===-1)toktIdx=nh.findIndex(function(h){return h.indexOf('fjarlagur')>-1;});
+      if(toktIdx===-1&&hdr.length>14)toktIdx=14;
+      if(goymsluIdx===-1)goymsluIdx=nh.findIndex(function(h){return h.indexOf('goymslupris')>-1;});
       allData=[];skipDB={};
       var matched=0;
       for(var i=1;i<lines.length;i++){
@@ -258,7 +272,7 @@ function loadMainSheet(){
         if(!breidd||!profil||!tvormal){_skip('Vantar pa_breidd/pa_profil/pa_tvormal \u00ed Attributes');continue;}
         var stock=parseNum(cols[stockIdx]);
         var tokt=parseNum(cols[toktIdx]);
-        if(tokt<=0){_skip('T\u00f8kt \u00edalt = 0');continue;}
+        if(toktIdx>-1&&tokt<=0){_skip('T\u00f8kt \u00edalt = 0');continue;}
         var goymsluPris=parseNum(cols[goymsluIdx]);
         var regPris=parseNum(cols[priceIdx]);
         var vmvg;
@@ -284,7 +298,7 @@ function loadMainSheet(){
         });
       }
       var d=document.getElementById('dbg');
-      if(d)d.textContent=d.textContent+' \u2014 '+matched+' dekk fingu kostpr\xeds';
+      if(d)d.textContent=d.textContent+' \u2014 '+matched+' dekk fingu kostpr\xeds \u2014 h\u00f8vu\u00f0sark: name '+nameIdx+', stock '+stockIdx+', reg '+priceIdx+', sku '+skuIdx+', goymslu '+goymsluIdx+', t\u00f8kt '+toktIdx+' ("'+(hdr[toktIdx]||'?')+'")';
     });
 }
 
@@ -294,7 +308,7 @@ function loadAll(){
   loadCostSheet()
     .then(loadMainSheet)
     .then(function(){
-      setSts('v7 · '+allData.length.toLocaleString('da-DK')+' dekk ladin inn — '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v8 · '+allData.length.toLocaleString('da-DK')+' dekk ladin inn — '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
     })
     .catch(function(e){
