@@ -277,7 +277,7 @@ function loadMainSheet(){
         var tokt=toktIdx>-1?parseNum(cols[toktIdx]):0;
         var regPris=parseNum(cols[priceIdx]);
         if(stockNorm.indexOf('outofstock')>-1){_skip('Out of Stock');continue;}
-        if(tokt<=0){_skip('T\u00f8kt \u00edalt = 0');continue;}
+        if(toktIdx>-1&&tokt<=0){_skip('T\u00f8kt \u00edalt = 0');continue;}
         if(regPris<=0){_skip('Regular price = 0');continue;}
         var eginGoymsla=stockNum>0;
         var vmvg=eginGoymsla?regPris:(regPris-15);
@@ -309,14 +309,24 @@ function loadMainSheet(){
 function reloadData(){costDB={};allData=[];loadAll();}
 function loadAll(){
   setSts('Leitar...');
-  loadCostSheet()
-    .then(loadMainSheet)
+  loadMainSheet()
     .then(function(){
-      setSts('v10 · '+allData.length.toLocaleString('da-DK')+' dekk ladin inn — '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v11 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
+      return loadCostSheet();
+    })
+    .then(function(){
+      var m=0;
+      for(var i=0;i<allData.length;i++){
+        var k=costDB[allData[i].ean];
+        if(k>0){allData[i].kost=k;m++;}
+      }
+      var d=document.getElementById('dbg');
+      if(d)d.textContent=m.toLocaleString('da-DK')+' av '+allData.length.toLocaleString('da-DK')+' dekk fingu kostpr\u00eds';
+      if(items.length)renderQuote();
     })
     .catch(function(e){
-      setSts('Goymslan ikki n\xe6gin \u2013 kanna deilingar \xe1 Google Sheets','#dc2626');
+      setSts('Goymslan ikki n\u00e6gin \u2013 kanna deilingar \u00e1 Google Sheets','#dc2626');
       console.error(e);
     });
 }
@@ -366,7 +376,7 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
   tbody._axle=axleLabel;
   tbody.innerHTML=filtered.map(function(d,i){
     var stag=d.season==='winter'?'<span class="stag winter">Vetra</span>':d.season==='allseason'?'<span class="stag all">Heil\xe1r</span>':'<span class="stag summer">Summar</span>';
-    var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+d.tokt+' stk fjargoymsla</span>';
+    var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+(d.tokt>0?d.tokt+' stk fjargoymsla':'fjargoymsla')+'</span>';
     var pu=d.noPrice?'<span style="color:#c2410c">vantar pr\u00eds</span>':fi(d.umvg)+' kr.';
     var pv=d.noPrice?'<span style="color:#c2410c">\u2014</span>':'<strong>'+fi(d.vmvg)+' kr.</strong>';
     return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
