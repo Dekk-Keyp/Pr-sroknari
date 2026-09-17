@@ -305,9 +305,10 @@ function loadMainSheet(){
         var regPris=parseNum(cols[priceIdx]);
         if(stockNorm.indexOf('outofstock')>-1){_skip('Out of Stock');continue;}
         if(toktIdx>-1&&tokt<=0&&stockNum<=0){_skip('Hv\u00f8rki egin goymsla ella T\u00f8kt \u00edalt');continue;}
-        if(regPris<=0){_skip('Regular price = 0');continue;}
         var eginGoymsla=stockNum>0;
-        var vmvg=eginGoymsla?regPris:(regPris-15);
+        var goymsluPris=goymsluIdx>-1?parseNum(cols[goymsluIdx]):0;
+        var vmvg=eginGoymsla?(goymsluPris>0?goymsluPris:regPris):(regPris-15);
+        if(vmvg<=0){_skip('Eingin pr\u00edsur \u2014 Regular price '+regPris+', Goymslupr\u00edsur '+goymsluPris);continue;}
         var noPrice=false;
         var ean=cleanEan(cols[skuIdx]);
         var kost=costDB[ean]||0;
@@ -338,7 +339,7 @@ function loadAll(){
   setSts('Leitar...');
   loadMainSheet()
     .then(function(){
-      setSts('v15 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v16 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
       return loadCostSheet();
     })
