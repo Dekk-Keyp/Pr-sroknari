@@ -189,7 +189,8 @@ function tryCsv(urls,mustHave){
   return attempt();
 }
 var MAIN_URLS=[
-  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=1458470834&single=true&output=csv',
+'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv'
 ];
@@ -337,7 +338,7 @@ function loadAll(){
   setSts('Leitar...');
   loadMainSheet()
     .then(function(){
-      setSts('v14 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v15 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
       return loadCostSheet();
     })
