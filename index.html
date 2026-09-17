@@ -171,6 +171,32 @@ function parseNum(s){
   var n=parseFloat(t);
   return isNaN(n)?0:n;
 }
+
+function tryCsv(urls,mustHave){
+  var i=0;
+  function attempt(){
+    if(i>=urls.length)return Promise.reject(new Error('eingin URL virkaði'));
+    var u=urls[i++];
+    return fetch(u+(u.indexOf('?')>-1?'&':'?')+'_='+Date.now(),{cache:'no-store'})
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.text();})
+      .then(function(t){
+        var head=(t.split('\n')[0]||'').toLowerCase();
+        if(mustHave&&head.indexOf(mustHave)===-1)throw new Error('vantar '+mustHave);
+        return {text:t,url:u};
+      })
+      .catch(function(e){console.warn('URL brast:',u,e.message);return attempt();});
+  }
+  return attempt();
+}
+var MAIN_URLS=[
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv'
+];
+var COST_URLS=[
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'
+];
+
 function norm(s){
   return String(s||'').toLowerCase()
     .replace(/\u00f8|\u00f6|\u00f3|\u00f2/g,'o')
@@ -208,9 +234,9 @@ function setDbg(msg){
 }
 
 function loadCostSheet(){
-  return fetch('https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'+'&_='+Date.now(),{cache:'no-store'})
-    .then(function(r){if(!r.ok)throw new Error('cost '+r.status);return r.text();})
-    .then(function(text){
+    return tryCsv(COST_URLS)
+    .then(function(res){var text=res.text;
+
       var lines=splitRows(text);
       if(!lines.length)throw new Error('cost sheet tomt');
       var hdr=parseCSVLine(lines[0]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
@@ -240,9 +266,9 @@ function loadCostSheet(){
 }
 
 function loadMainSheet(){
-  return fetch('https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0&range=A1:P50000'+'&_='+Date.now(),{cache:'no-store'})
-    .then(function(r){if(!r.ok)throw new Error('main '+r.status);return r.text();})
-    .then(function(text){
+    return tryCsv(MAIN_URLS,'name')
+    .then(function(res){var text=res.text;window.__mainUrl=res.url;
+
       var lines=splitRows(text);
       var hdr=parseCSVLine(lines[0]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
       var nameIdx=hdr.indexOf('name');
@@ -302,7 +328,7 @@ function loadMainSheet(){
         });
       }
       var d=document.getElementById('dbg');
-      if(d)d.textContent='T\u00f8kt \u00edalt kolonna: '+(toktIdx>-1?('funnin ("'+hdr[toktIdx]+'")'):'VANTAR \u2014 einki lagerfiltur')+' \u00b7 '+allData.length+' dekk';
+      if(d)d.textContent='T\u00f8kt \u00edalt: '+(toktIdx>-1?('OK ("'+hdr[toktIdx]+'")'):'VANTAR')+' \u00b7 '+hdr.length+' kolonnur \u00b7 '+allData.length+' dekk \u00b7 '+String(window.__mainUrl||'').replace(/^.*\/spreadsheets\/d\/[^/]*\//,'');
     });
 }
 
@@ -311,7 +337,7 @@ function loadAll(){
   setSts('Leitar...');
   loadMainSheet()
     .then(function(){
-      setSts('v13 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v14 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
       return loadCostSheet();
     })
