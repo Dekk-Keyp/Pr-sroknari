@@ -55,6 +55,7 @@ td{padding:9px 12px;border-bottom:1px solid #f5f5f5;color:#111;vertical-align:mi
 .cphead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .cpbox{background:#f9f9f9;border:1px solid #eee;border-radius:8px;padding:20px}
 .profit-note{font-size:11px;color:#999;margin-top:6px}
+.eancell{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:#888;white-space:nowrap;letter-spacing:.2px}
 </style>
 </head>
 <body>
@@ -80,10 +81,10 @@ td{padding:9px 12px;border-bottom:1px solid #f5f5f5;color:#111;vertical-align:mi
 </div>
 <div class="axle">
 <h3>Frammøkul</h3>
-<input type="text" id="search1" placeholder="t.d. 235/50R19" autocomplete="off">
+<input type="text" id="search1" placeholder="t.d. 235/50R19 ella EAN 4019238038453" autocomplete="off">
 <div class="results-wrap" id="wrap1">
 <table>
-<thead><tr><th>Merki</th><th>Stødd</th><th>U/MVG</th><th>V/MVG</th></tr></thead>
+<thead><tr><th>Merki</th><th>EAN</th><th>Stødd</th><th>U/MVG</th><th>V/MVG</th></tr></thead>
 <tbody id="results1"></tbody>
 </table>
 </div>
@@ -94,10 +95,10 @@ td{padding:9px 12px;border-bottom:1px solid #f5f5f5;color:#111;vertical-align:mi
 </div>
 <div class="axle">
 <h3>Afturøkul</h3>
-<input type="text" id="search2" placeholder="t.d. 255/45R19 — lat vera tomt um sama stødd rundan um" autocomplete="off">
+<input type="text" id="search2" placeholder="t.d. 255/45R19 ella EAN — lat vera tomt um sama stødd rundan um" autocomplete="off">
 <div class="results-wrap" id="wrap2">
 <table>
-<thead><tr><th>Merki</th><th>Stødd</th><th>U/MVG</th><th>V/MVG</th></tr></thead>
+<thead><tr><th>Merki</th><th>EAN</th><th>Stødd</th><th>U/MVG</th><th>V/MVG</th></tr></thead>
 <tbody id="results2"></tbody>
 </table>
 </div>
@@ -109,8 +110,8 @@ td{padding:9px 12px;border-bottom:1px solid #f5f5f5;color:#111;vertical-align:mi
 <hr class="divl">
 <p class="sl" style="margin-bottom:12px">Tilboð</p>
 <table>
-<thead><tr><th>Merki</th><th>U/MVG</th><th>V/MVG</th><th>Kostprísur</th><th>Profit</th><th>Margin</th><th></th></tr></thead>
-<tbody id="qbody"><tr><td colspan="7" class="empty">Eingi dekk løgd inn</td></tr></tbody>
+<thead><tr><th>Merki</th><th>EAN</th><th>U/MVG</th><th>V/MVG</th><th>Kostprísur</th><th>Profit</th><th>Margin</th><th></th></tr></thead>
+<tbody id="qbody"><tr><td colspan="8" class="empty">Eingi dekk løgd inn</td></tr></tbody>
 </table>
 <p class="profit-note">Kostprísur, profit og margin eru bert til tín – tey koma ikki við í screenshotinum.</p>
 <div class="cpsec" id="cpsec">
@@ -162,41 +163,20 @@ function splitRows(text){
 }
 function parseNum(s){
   if(s===undefined||s===null)return 0;
-  var t=String(s).replace(/"/g,'').trim();
+  var t=String(s).replace(/"/g,'').replace(/\s/g,'').trim();
   if(!t)return 0;
-  t=t.replace(/\s/g,'');
-  if(t.indexOf(',')>-1&&t.indexOf('.')>-1){t=t.replace(/\./g,'').replace(',','.');}
-  else if(t.indexOf(',')>-1){t=t.replace(',','.');}
+  var lc=t.lastIndexOf(','), ld=t.lastIndexOf('.');
+  if(lc>-1&&ld>-1){
+    if(ld>lc){t=t.replace(/,/g,'');}          // 1,155.00 -> 1155.00
+    else{t=t.replace(/\./g,'').replace(',','.');}  // 1.155,00 -> 1155.00
+  } else if(lc>-1){
+    if(t.length-lc-1===3&&/^\d{1,3}(,\d{3})+$/.test(t.replace(/[^0-9,]/g,''))){t=t.replace(/,/g,'');}
+    else{t=t.replace(',','.');}
+  }
   t=t.replace(/[^0-9.\-]/g,'');
   var n=parseFloat(t);
   return isNaN(n)?0:n;
 }
-
-function tryCsv(urls,mustHave){
-  var i=0;
-  function attempt(){
-    if(i>=urls.length)return Promise.reject(new Error('eingin URL virkaði'));
-    var u=urls[i++];
-    return fetch(u+(u.indexOf('?')>-1?'&':'?')+'_='+Date.now(),{cache:'no-store'})
-      .then(function(r){if(!r.ok)throw new Error(r.status);return r.text();})
-      .then(function(t){
-        var head=(t.split('\n')[0]||'').toLowerCase();
-        if(mustHave&&head.indexOf(mustHave)===-1)throw new Error('vantar '+mustHave);
-        return {text:t,url:u};
-      })
-      .catch(function(e){console.warn('URL brast:',u,e.message);return attempt();});
-  }
-  return attempt();
-}
-var MAIN_URLS=[
-  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=1458470834&single=true&output=csv',
-'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
-  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0',
-  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv'
-];
-var COST_URLS=[
-  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'
-];
 
 function norm(s){
   return String(s||'').toLowerCase()
@@ -208,6 +188,31 @@ function norm(s){
     .replace(/\u00fd/g,'y')
     .replace(/\u00f0/g,'d')
     .replace(/[^a-z0-9]/g,'');
+}
+var MAIN_URLS=[
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=1458470834&single=true&output=csv',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0'
+];
+var COST_URLS=[
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=2065951973&single=true&output=csv',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'
+];
+function tryCsv(urls,mustHave){
+  var i=0;
+  function attempt(){
+    if(i>=urls.length)return Promise.reject(new Error('eingin URL virkadi'));
+    var u=urls[i++];
+    return fetch(u+(u.indexOf('?')>-1?'&':'?')+'_='+Date.now(),{cache:'no-store'})
+      .then(function(r){if(!r.ok)throw new Error(r.status);return r.text();})
+      .then(function(t){
+        var head=(t.split('\n')[0]||'').toLowerCase();
+        if(mustHave&&head.indexOf(mustHave)===-1)throw new Error('vantar '+mustHave);
+        return {text:t,url:u};
+      })
+      .catch(function(e){console.warn('URL brast:',u,e.message);return attempt();});
+  }
+  return attempt();
 }
 function cleanEan(s){return String(s||'').replace(/[^0-9]/g,'');}
 
@@ -240,17 +245,23 @@ function loadCostSheet(){
 
       var lines=splitRows(text);
       if(!lines.length)throw new Error('cost sheet tomt');
-      var hdr=parseCSVLine(lines[0]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
+      var hRow=0;
+      for(var q=0;q<Math.min(lines.length,40);q++){
+        var lw=lines[q].toLowerCase();
+        if(lw.indexOf('sku')>-1&&(lw.indexOf('basecost')>-1||lw.indexOf('tollur')>-1)){hRow=q;break;}
+      }
+      var hdr=parseCSVLine(lines[hRow]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
       costHeaders=hdr;
       var hdrList=hdr.slice(0,12).map(function(h,ix){return String.fromCharCode(65+ix)+'='+(h||'?');}).join(' | ');
       var eanIdx=hdr.findIndex(function(h){return h.indexOf('sku')>-1||h.indexOf('ean')>-1;});
-      var veitaraIdx=hdr.findIndex(function(h){return h.indexOf('veitara')>-1&&h.indexOf('dkk')>-1;});
+      var veitaraIdx=hdr.findIndex(function(h){return h.indexOf('basecost')>-1;});
+      if(veitaraIdx===-1)veitaraIdx=hdr.findIndex(function(h){return h.indexOf('veitara')>-1&&h.indexOf('dkk')>-1;});
       var tollIdx=hdr.findIndex(function(h){return h.indexOf('tollur')>-1;});
       var avgjIdx=hdr.findIndex(function(h){return h.indexOf('avgr')>-1;});
       var shipIdx=hdr.findIndex(function(h){return h.indexOf('shipping tota')>-1;});
       if(shipIdx===-1)shipIdx=hdr.findIndex(function(h){return h.indexOf('shipping t')>-1;});
       var found=0;
-      for(var i=1;i<lines.length;i++){
+      for(var i=hRow+1;i<lines.length;i++){
         if(!lines[i].trim())continue;
         var cols=parseCSVLine(lines[i]);
         var ean=cleanEan(cols[eanIdx]);
@@ -339,7 +350,7 @@ function loadAll(){
   setSts('Leitar...');
   loadMainSheet()
     .then(function(){
-      setSts('v16 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
+      setSts('v17 \u00b7 '+allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
       return loadCostSheet();
     })
@@ -380,15 +391,17 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
   var tbody=document.getElementById(tbodyId);
   var wrap=document.getElementById(wrapId);
   if(q.length<2){
-    tbody.innerHTML='<tr><td colspan="4" class="empty">Skriv st\xf8dd</td></tr>';
+    tbody.innerHTML='<tr><td colspan="5" class="empty">Skriv st\xf8dd ella EAN</td></tr>';
     tbody._filtered=[];wrap.style.display='block';return;
   }
+  var isEan=/^[0-9]{6,}$/.test(q);
   var filtered=allData.filter(function(d){
-    if(activeSeason!=='all'&&d.season!==activeSeason)return false;
-    return matchSize(d,q);
+    var eanHit=isEan&&d.ean&&d.ean.indexOf(q)!==-1;
+    if(!eanHit&&activeSeason!=='all'&&d.season!==activeSeason)return false;
+    return eanHit||matchSize(d,q);
   });
   if(!filtered.length){
-    tbody.innerHTML='<tr><td colspan="4" class="empty">Eingi dekk funnin</td></tr>';
+    tbody.innerHTML='<tr><td colspan="5" class="empty">Eingi dekk funnin</td></tr>';
     tbody._filtered=[];wrap.style.display='block';return;
   }
   filtered.sort(function(a,b){
@@ -407,7 +420,7 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
     var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+(d.tokt>0?d.tokt+' stk fjargoymsla':'fjargoymsla')+'</span>';
     var pu=d.noPrice?'<span style="color:#c2410c">vantar pr\u00eds</span>':fi(d.umvg)+' kr.';
     var pv=d.noPrice?'<span style="color:#c2410c">\u2014</span>':'<strong>'+fi(d.vmvg)+' kr.</strong>';
-    return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
+    return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td class="eancell">'+(d.ean||'\u2014')+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
   }).join('');
   wrap.style.display='block';
 }
@@ -432,20 +445,25 @@ function addSelected(tbodyId){
   if(!boxes.length){alert('Vel nakrar dekk fyrst.');return;}
   Array.prototype.forEach.call(boxes,function(cb){
     var d=filtered[parseInt(cb.dataset.i)];
-    items.push({n:d.name+' '+d.stodd,u:d.umvg,m:d.vmvg,k:d.kost});
+    items.push({n:qName(d),ean:d.ean,u:d.umvg,m:d.vmvg,k:d.kost});
   });
   renderQuote();
   Array.prototype.forEach.call(tbody.querySelectorAll('.rowchk'),function(cb){cb.checked=false;});
 }
 
 var items=[];
+function qName(d){
+  var nn=String(d.name||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+  var ss=String(d.stodd||'').replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+  return (ss&&nn.indexOf(ss)>-1)?d.name:(d.name+' '+d.stodd);
+}
 function calcVmvg(u){return Math.ceil(u*1.25/5)*5;}
 
 function renderQuote(){
   var b=document.getElementById('qbody');
   var sec=document.getElementById('cpsec');
   if(!items.length){
-    b.innerHTML='<tr><td colspan="7" class="empty">Eingi dekk l\xf8gd inn</td></tr>';
+    b.innerHTML='<tr><td colspan="8" class="empty">Eingi dekk l\xf8gd inn</td></tr>';
     sec.style.display='none';return;
   }
   b.innerHTML=items.map(function(it,i){
@@ -455,6 +473,7 @@ function renderQuote(){
     var mTd=margin!==null?'<span style="color:'+(margin>=15?'#16a34a':margin>=5?'#f59e0b':'#dc2626')+'">'+fp(margin)+'</span>':'-';
     return '<tr>'
       +'<td>'+it.n+'</td>'
+      +'<td class="eancell">'+(it.ean||'\u2014')+'</td>'
       +'<td style="text-align:right"><input class="price-input" type="number" value="'+it.u+'" onchange="updatePrice('+i+',this.value)"></td>'
       +'<td style="text-align:right"><strong id="vmvg_'+i+'">'+fi(calcVmvg(it.u))+' kr.</strong></td>'
       +'<td style="text-align:right;font-size:12px;color:#888">'+(it.k>0?fi(it.k)+' kr.':'-')+'</td>'
