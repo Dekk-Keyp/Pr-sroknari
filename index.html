@@ -314,8 +314,7 @@ function loadMainSheet(){
         var stockNum=parseNum(stockRaw);
         var tokt=toktIdx>-1?parseNum(cols[toktIdx]):0;
         var regPris=parseNum(cols[priceIdx]);
-        if(stockNorm.indexOf('outofstock')>-1){_skip('Out of Stock');continue;}
-        if(toktIdx>-1&&tokt<=0&&stockNum<=0){_skip('Hv\u00f8rki egin goymsla ella T\u00f8kt \u00edalt');continue;}
+        var wooOut=stockNorm.indexOf('outofstock')>-1;
         var eginGoymsla=stockNum>0;
         var goymsluPris=goymsluIdx>-1?parseNum(cols[goymsluIdx]):0;
         var vmvg=eginGoymsla?(goymsluPris>0?goymsluPris:regPris):(regPris-15);
@@ -337,6 +336,7 @@ function loadMainSheet(){
           tokt:tokt,
           stockNum:stockNum,
           eginGoymsla:eginGoymsla,
+          wooOut:wooOut,
           season:detectSeason(name,cats,attr)
         });
       }
@@ -417,7 +417,7 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
   tbody._axle=axleLabel;
   tbody.innerHTML=filtered.map(function(d,i){
     var stag=d.season==='winter'?'<span class="stag winter">Vetra</span>':d.season==='allseason'?'<span class="stag all">Heil\xe1r</span>':'<span class="stag summer">Summar</span>';
-    var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+(d.tokt>0?d.tokt+' stk fjargoymsla':'fjargoymsla')+'</span>';
+    var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':d.tokt>0?'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+d.tokt+' stk fjargoymsla</span>':'<span class="stag" style="background:#fef3c7;color:#b45309">ikki \u00e1 goymslu</span>';
     var pu=d.noPrice?'<span style="color:#c2410c">vantar pr\u00eds</span>':fi(d.umvg)+' kr.';
     var pv=d.noPrice?'<span style="color:#c2410c">\u2014</span>':'<strong>'+fi(d.vmvg)+' kr.</strong>';
     return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td class="eancell">'+(d.ean||'\u2014')+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
