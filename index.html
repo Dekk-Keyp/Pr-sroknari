@@ -200,23 +200,33 @@ var COST_URLS=[
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=2065951973&single=true&output=csv',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'
 ];
+var TRY_TIMEOUT_MS=45000;   // 19.000 dekk eru nokur MB - 8 sek rakk ikki
+function shortUrl(u){
+  if(u.indexOf('workers.dev')>-1)return'Worker';
+  if(u.indexOf('docs.google.com')>-1)return'Google ark';
+  return u.slice(0,40);
+}
 function tryCsv(urls,mustHave){
-  var i=0;
+  var i=0,why=[];
   function attempt(){
-    if(i>=urls.length)return Promise.reject(new Error('eingin URL virkadi'));
+    if(i>=urls.length)return Promise.reject(new Error(why.join(' \u00b7 ')||'eingin URL virkadi'));
     var u=urls[i++];
     var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
-    var timer=setTimeout(function(){if(ctl)ctl.abort();},8000);
+    var timer=setTimeout(function(){if(ctl)ctl.abort();},TRY_TIMEOUT_MS);
     return fetch(u+(u.indexOf('?')>-1?'&':'?')+'_='+Date.now(),
                  ctl?{cache:'no-store',signal:ctl.signal}:{cache:'no-store'})
-      .then(function(r){clearTimeout(timer);if(!r.ok)throw new Error(r.status);return r.text();})
+      .then(function(r){clearTimeout(timer);if(!r.ok)throw new Error('HTTP '+r.status);return r.text();})
       .then(function(t){
         var head=(t.split('\n')[0]||'').toLowerCase();
-        if(mustHave&&head.indexOf(mustHave)===-1)throw new Error('vantar '+mustHave);
+        if(mustHave&&head.indexOf(mustHave)===-1){
+          throw new Error(t.slice(0,60).replace(/\s+/g,' '));
+        }
         return {text:t,url:u};
       })
       .catch(function(e){clearTimeout(timer);
-        console.warn('URL brast:',u,e&&e.name==='AbortError'?'ov long tid (20s)':e.message);
+        var r=(e&&e.name==='AbortError')?'ov long t\u00ed\u00f0':(e&&e.message?e.message:'brast');
+        why.push(shortUrl(u)+': '+r);
+        console.warn('URL brast:',u,r);
         return attempt();});
   }
   return attempt();
@@ -386,7 +396,7 @@ function loadAll(){
       if(items.length)renderQuote();
     })
     .catch(function(e){
-      setSts('Fekk ongar d\u00e1tur \u2014 '+(e&&e.message?e.message:'ukend feila')+'. Kanna Worker-URL og ORIGINS.','#dc2626');
+      setSts('Fekk ongar d\u00e1tur \u2014 '+(e&&e.message?e.message:'ukend feila'),'#dc2626');
       console.error(e);
     });
 }
