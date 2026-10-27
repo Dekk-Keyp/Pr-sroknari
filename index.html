@@ -424,13 +424,17 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
     tbody.innerHTML='<tr><td colspan="5" class="empty">Eingi dekk funnin</td></tr>';
     tbody._filtered=[];wrap.style.display='block';return;
   }
+  // Cheapest brand first, then cheapest tyre inside each brand. The per-brand
+  // minimum is worked out once here; doing it inside the comparator rescanned
+  // the whole list on every comparison, which does not scale to a big result.
+  var brandMin={};
+  for(var bi=0;bi<filtered.length;bi++){
+    var bk=filtered[bi].name.split(' ')[0];
+    if(brandMin[bk]===undefined||filtered[bi].vmvg<brandMin[bk])brandMin[bk]=filtered[bi].vmvg;
+  }
   filtered.sort(function(a,b){
     var ba=a.name.split(' ')[0],bb=b.name.split(' ')[0];
-    if(ba!==bb){
-      var mA=Math.min.apply(null,filtered.filter(function(x){return x.name.split(' ')[0]===ba;}).map(function(x){return x.vmvg;}));
-      var mB=Math.min.apply(null,filtered.filter(function(x){return x.name.split(' ')[0]===bb;}).map(function(x){return x.vmvg;}));
-      return mA-mB;
-    }
+    if(ba!==bb)return brandMin[ba]-brandMin[bb];
     return a.vmvg-b.vmvg;
   });
   tbody._filtered=filtered;
