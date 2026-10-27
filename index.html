@@ -190,6 +190,7 @@ function norm(s){
     .replace(/[^a-z0-9]/g,'');
 }
 var MAIN_URLS=[
+  'https://dekk-keyp.rapid-block-15b7.workers.dev/',
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=1458470834&single=true&output=csv',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0'
@@ -222,7 +223,7 @@ function detectSeason(name,cats,attr){
   if(a.indexOf('heilar')>-1)return'allseason';
   if(a.indexOf('summar')>-1)return'summer';
   var c=(cats||'').toLowerCase();
-  if(c.indexOf('vetrardekk')>-1)return'winter';
+  if(c.indexOf('vetra')>-1)return'winter';
   if(c.indexOf('heil')>-1)return'allseason';
   if(c.indexOf('summar')>-1)return'summer';
   var t=(name||'').toLowerCase();
@@ -285,9 +286,12 @@ function loadMainSheet(){
       var hdr=parseCSVLine(lines[0]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
       var nameIdx=hdr.indexOf('name');
       var priceIdx=hdr.indexOf('regular price');
+      var saleIdx=hdr.indexOf('sale price');
+      if(saleIdx===-1)saleIdx=hdr.findIndex(function(h){return h.indexOf('sale pri')>-1;});
       var attrIdx=hdr.indexOf('attributes');
       var catsIdx=hdr.indexOf('categories');
       var stockIdx=hdr.indexOf('stock');
+      var statusIdx=hdr.indexOf('status');
       var skuIdx=hdr.findIndex(function(h){return h.indexOf('sku')>-1;});
       var goymsluIdx=hdr.findIndex(function(h){return h.indexOf('goymslu')>-1;});
       var nh=hdr.map(norm);
@@ -314,11 +318,18 @@ function loadMainSheet(){
         var stockNum=parseNum(stockRaw);
         var tokt=toktIdx>-1?parseNum(cols[toktIdx]):0;
         var regPris=parseNum(cols[priceIdx]);
-        var wooOut=stockNorm.indexOf('outofstock')>-1;
+        var salePris=saleIdx>-1?parseNum(cols[saleIdx]):0;
+        var onSale=salePris>0&&(regPris<=0||salePris<regPris);
+        var listPris=onSale?salePris:regPris;
+        var statusNorm=statusIdx>-1?norm(cols[statusIdx]):'';
+        var wooState=stockNorm+' '+statusNorm;
+        var wooOut=wooState.indexOf('outofstock')>-1;
+        var wooBack=wooState.indexOf('onbackorder')>-1;
+        var wooIn=wooState.indexOf('instock')>-1;
         var eginGoymsla=stockNum>0;
         var goymsluPris=goymsluIdx>-1?parseNum(cols[goymsluIdx]):0;
-        var vmvg=eginGoymsla?(goymsluPris>0?goymsluPris:regPris):(regPris-15);
-        if(vmvg<=0){_skip('Eingin pr\u00edsur \u2014 Regular price '+regPris+', Goymslupr\u00edsur '+goymsluPris);continue;}
+        var vmvg=eginGoymsla?(goymsluPris>0?goymsluPris:listPris):(listPris-15);
+        if(vmvg<=0){_skip('Eingin pr\u00edsur \u2014 Regular price '+regPris+', Sale price '+salePris+', Goymslupr\u00edsur '+goymsluPris);continue;}
         var noPrice=false;
         var ean=cleanEan(cols[skuIdx]);
         var kost=costDB[ean]||0;
@@ -337,6 +348,10 @@ function loadMainSheet(){
           stockNum:stockNum,
           eginGoymsla:eginGoymsla,
           wooOut:wooOut,
+          wooBack:wooBack,
+          wooIn:wooIn,
+          onSale:onSale,
+          listPris:listPris,
           season:detectSeason(name,cats,attr)
         });
       }
@@ -417,7 +432,16 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
   tbody._axle=axleLabel;
   tbody.innerHTML=filtered.map(function(d,i){
     var stag=d.season==='winter'?'<span class="stag winter">Vetra</span>':d.season==='allseason'?'<span class="stag all">Heil\xe1r</span>':'<span class="stag summer">Summar</span>';
-    var stk=d.stockNum>0?'<span class="stag" style="background:#dcfce7;color:#15803d">'+d.stockNum+' stk \u00e1 goymslu</span>':d.tokt>0?'<span class="stag" style="background:#e0e7ff;color:#4338ca">'+d.tokt+' stk fjargoymsla</span>':'<span class="stag" style="background:#fef3c7;color:#b45309">ikki \u00e1 goymslu</span>';
+    var GRN='background:#dcfce7;color:#15803d',IND='background:#e0e7ff;color:#4338ca',AMB='background:#fef3c7;color:#b45309';
+    var stag_,stxt_;
+    if(d.stockNum>0){stag_=GRN;stxt_=d.stockNum+' stk \u00e1 goymslu';}
+    else if(d.tokt>0){stag_=IND;stxt_=d.tokt+' stk fjargoymsla';}
+    else if(d.wooIn){stag_=GRN;stxt_='\u00e1 goymslu';}
+    else if(d.wooBack){stag_=IND;stxt_='til \u00fatvegan';}
+    else if(d.wooOut){stag_=AMB;stxt_='ikki \u00e1 goymslu';}
+    else{stag_=IND;stxt_='fjargoymsla';}
+    var stk='<span class="stag" style="'+stag_+'">'+stxt_+'</span>';
+    if(d.onSale)stk+=' <span class="stag" style="background:#fce7f3;color:#be185d">tilbo\u00f0spr\u00edsur</span>';
     var pu=d.noPrice?'<span style="color:#c2410c">vantar pr\u00eds</span>':fi(d.umvg)+' kr.';
     var pv=d.noPrice?'<span style="color:#c2410c">\u2014</span>':'<strong>'+fi(d.vmvg)+' kr.</strong>';
     return '<tr><td><input type="checkbox" class="rowchk" data-i="'+i+'"> '+d.name+' '+stag+' '+stk+'</td><td class="eancell">'+(d.ean||'\u2014')+'</td><td style="text-align:right;color:#888">'+d.stodd+'</td><td style="text-align:right">'+pu+'</td><td style="text-align:right">'+pv+'</td></tr>';
