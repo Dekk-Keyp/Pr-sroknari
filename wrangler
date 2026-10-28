@@ -1,0 +1,14 @@
+name = "dekk-keyp"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+WC_SITE = "https://dekk-keyp.fo"
+ORIGINS = "https://dekk-keyp.github.io"
+
+[[kv_namespaces]]
+binding = "FEED"
+id = "f22879b486ef4f8abacfab08f0735a3e"
+
+# WC_KEY og WC_SECRET eru secrets og standa ikki her.
+# Tey verda verandi í Cloudflare.
