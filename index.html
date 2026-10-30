@@ -129,7 +129,9 @@ td{padding:9px 12px;border-bottom:1px solid #f5f5f5;color:#111;vertical-align:mi
 </div>
 <script>
 
+var allData=[];
 var costDB={};
+var skipDB={};
 var costHeaders=[];
 
 function parseAttr(attr,key){
@@ -187,9 +189,12 @@ function norm(s){
     .replace(/\u00f0/g,'d')
     .replace(/[^a-z0-9]/g,'');
 }
-// The feed asks WooCommerce for one tyre size at a time. No catalogue is
-// mirrored, so nothing here can go stale.
-var FEED_URL='https://dekk-keyp.rapid-block-15b7.workers.dev/';
+var MAIN_URLS=[
+  // Arkid. Livandi WooCommerce-feedid kemur aftur tá 429-trupulleikin er loystur.
+  'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=1458470834&single=true&output=csv',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Sheet1',
+  'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/export?format=csv&gid=0'
+];
 var COST_URLS=[
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vSbNptzL0YKznSNy1IP6tU1TNiDSialeiwYmtVsrSpm6S1GswrdvL1bSnyD1U57ZV0-ejuk9LxB2svp/pub?gid=2065951973&single=true&output=csv',
   'https://docs.google.com/spreadsheets/d/1OAlP47ckSv1nErY_YpAdC6dLmKOGlxqBJusXkRqsClQ/gviz/tq?tqx=out:csv&sheet=Owner_Profit_View'
@@ -288,14 +293,11 @@ function loadCostSheet(){
     });
 }
 
-/**
- * Turn one CSV answer into tyre records. The feed is per size now, so this
- * runs on a few dozen rows per search instead of the whole catalogue.
- */
-function parseCatalogue(text){
-      var out=[];
+function loadMainSheet(){
+    return tryCsv(MAIN_URLS,'name')
+    .then(function(res){var text=res.text;window.__mainUrl=res.url;
+
       var lines=splitRows(text);
-      if(!lines.length)return out;
       var hdr=parseCSVLine(lines[0]).map(function(h){return h.replace(/"/g,'').trim().toLowerCase();});
       var nameIdx=hdr.indexOf('name');
       var priceIdx=hdr.indexOf('regular price');
@@ -312,6 +314,8 @@ function parseCatalogue(text){
       if(toktIdx===-1)toktIdx=nh.findIndex(function(h){return h.indexOf('fjarlagur')>-1;});
       if(toktIdx===-1&&hdr.length>14)toktIdx=14;
       if(goymsluIdx===-1)goymsluIdx=nh.findIndex(function(h){return h.indexOf('goymslupris')>-1;});
+      allData=[];skipDB={};
+      var matched=0;
       for(var i=1;i<lines.length;i++){
         if(!lines[i].trim())continue;
         var cols=parseCSVLine(lines[i]);
@@ -320,7 +324,10 @@ function parseCatalogue(text){
         var breidd=parseAttr(attr,'pa_breidd');
         var profil=parseAttr(attr,'pa_profil');
         var tvormal=parseAttr(attr,'pa_tvormal');
-        if(!breidd||!profil||!tvormal)continue;
+        var _ean=cleanEan(cols[skuIdx]);
+        var _nm=(cols[nameIdx]||'').replace(/"/g,'');
+        function _skip(r){if(_ean)skipDB[_ean]={reason:r,name:_nm,attr:attr.slice(0,120),stock:cols[stockIdx],goymslu:cols[goymsluIdx],reg:cols[priceIdx]};}
+        if(!breidd||!profil||!tvormal){_skip('Vantar pa_breidd/pa_profil/pa_tvormal \u00ed Attributes');continue;}
         var stockRaw=String(cols[stockIdx]||'').trim();
         var stockNorm=norm(stockRaw);
         var stockNum=parseNum(stockRaw);
@@ -334,75 +341,67 @@ function parseCatalogue(text){
         var wooIn=wooState.indexOf('instock')>-1;
         var eginGoymsla=stockNum>0;
         var goymsluPris=goymsluIdx>-1?parseNum(cols[goymsluIdx]):0;
-        // A goymslu   -> sale_price (goymsluPris is the sheet-era fallback).
-        // Fjargoymsla -> regular_price minus 15 kr.
+        // A goymslu     -> sale_price (goymsluPris is the Google-sheet fallback,
+        //                   that source carries it instead of a sale price).
+        // Fjargoymsla   -> regular_price minus 15 kr.
         var vmvg=eginGoymsla
           ?(salePris>0?salePris:(goymsluPris>0?goymsluPris:regPris))
           :(regPris>0?regPris-15:0);
-        if(vmvg<=0)continue;
+        if(vmvg<=0){_skip('Eingin pr\u00edsur \u2014 Regular price '+regPris+', Sale price '+salePris+', Goymslupr\u00edsur '+goymsluPris);continue;}
+        var noPrice=false;
         var ean=cleanEan(cols[skuIdx]);
+        var kost=costDB[ean]||0;
+        if(kost>0)matched++;
         var name=(cols[nameIdx]||'').replace(/"/g,'');
-        out.push({
-          name:name, ean:ean,
+        allData.push({
+          name:name,
+          ean:ean,
           stodd:breidd+'/'+profil+'R'+tvormal,
           breidd:parseInt(breidd),profil:parseInt(profil),tvormal:parseInt(tvormal),
           vmvg:vmvg,umvg:vmvg>0?Math.round(vmvg/1.25):0,
-          kost:costDB[ean]||0,
-          inStock:eginGoymsla, noPrice:false, tokt:tokt,
-          stockNum:stockNum, eginGoymsla:eginGoymsla,
-          wooOut:wooOut, wooBack:wooBack, wooIn:wooIn,
+          kost:kost,
+          inStock:eginGoymsla,
+          noPrice:noPrice,
+          tokt:tokt,
+          stockNum:stockNum,
+          eginGoymsla:eginGoymsla,
+          wooOut:wooOut,
+          wooBack:wooBack,
+          wooIn:wooIn,
           season:detectSeason(name,cats,attr)
         });
       }
-      return out;
-}
-
-/** Ask the Worker for one size, or one EAN. Answers are small and live. */
-var sizeCache={};
-function fetchFeed(query){
-  var isEan=/^[0-9]{6,}$/.test(query);
-  var key=(isEan?'e:':'s:')+query;
-  if(sizeCache[key])return Promise.resolve(sizeCache[key]);
-  var url=FEED_URL+(isEan?'?ean=':'?size=')+encodeURIComponent(query)+'&_='+Date.now();
-  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
-  var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
-  return fetch(url,ctl?{cache:'no-store',signal:ctl.signal}:{cache:'no-store'})
-    .then(function(r){clearTimeout(timer);return r.text().then(function(t){
-      if(!r.ok)throw new Error(t.slice(0,120));
-      return t;});})
-    .then(function(t){
-      if(t.slice(0,6)==='FEILUR')throw new Error(t.slice(0,120));
-      var rows=parseCatalogue(t);
-      sizeCache[key]=rows;
-      return rows;
-    })
-    .catch(function(e){
-      clearTimeout(timer);
-      throw new Error(e&&e.name==='AbortError'?'ov long ti\u00f0':(e&&e.message?e.message:'brast'));
+      var d=document.getElementById('dbg');
+      if(d)d.textContent='T\u00f8kt \u00edalt: '+(toktIdx>-1?('OK ("'+hdr[toktIdx]+'")'):'VANTAR')+' \u00b7 '+hdr.length+' kolonnur \u00b7 '+allData.length+' dekk \u00b7 '+String(window.__mainUrl||'').replace(/^.*\/spreadsheets\/d\/[^/]*\//,'');
     });
 }
 
-function reloadData(){costDB={};sizeCache={};loadAll();doFilter();}
-
+function reloadData(){costDB={};allData=[];loadAll();}
 function loadAll(){
-  setSts('Klar \u2014 skriv eina st\u00f8dd','#16a34a');
-  // Cost prices still come from the sheet; they are not in WooCommerce.
-  // Loaded once in the background, never blocking a search.
-  loadCostSheet()
+  setSts('Leitar...');
+  loadMainSheet()
     .then(function(){
-      var n=0;for(var k in costDB)n++;
-      var d=document.getElementById('dbg');
-      if(d)d.textContent=n.toLocaleString('da-DK')+' kostpr\u00edsir lisnir inn';
-      sizeCache={};
+      setSts(allData.length.toLocaleString('da-DK')+' dekk ladin inn \u2014 '+new Date().toLocaleTimeString('da-DK'),'#16a34a');
       doFilter();
+      return loadCostSheet();
+    })
+    .then(function(){
+      var m=0;
+      for(var i=0;i<allData.length;i++){
+        var k=costDB[allData[i].ean];
+        if(k>0){allData[i].kost=k;m++;}
+      }
+      var d=document.getElementById('dbg');
+      if(d)d.textContent=m.toLocaleString('da-DK')+' av '+allData.length.toLocaleString('da-DK')+' dekk fingu kostpr\u00eds';
       if(items.length)renderQuote();
     })
     .catch(function(e){
-      var d=document.getElementById('dbg');
-      if(d)d.textContent='Kostpr\u00edsur ikki tokur: '+(e&&e.message?e.message:'brast');
+      setSts('Fekk ongar d\u00e1tur \u2014 '+(e&&e.message?e.message:'ukend feila'),'#dc2626');
+      console.error(e);
     });
 }
 
+var activeSeason='all';
 function setSeason(s){
   activeSeason=s;
   document.querySelectorAll('.sbtn').forEach(function(b){b.classList.toggle('active',b.dataset.s===s);});
@@ -412,39 +411,29 @@ function setSeason(s){
 function fi(n){return Math.round(n).toLocaleString('da-DK');}
 function fp(n){return n.toFixed(1).replace('.',',')+'%';}
 
-var _seq={};
-function buildList(inputId,tbodyId,wrapId,axleLabel){
-  var raw=document.getElementById(inputId).value.trim();
-  var q=raw.replace(/[\s\/]/g,'').toLowerCase();
-  var tbody=document.getElementById(tbodyId);
-  var wrap=document.getElementById(wrapId);
-  wrap.style.display='block';
-  if(q.length<3){
-    tbody.innerHTML='<tr><td colspan="5" class="empty">Skriv st\xf8dd ella EAN</td></tr>';
-    tbody._filtered=[];return;
-  }
-  var my=(_seq[inputId]=(_seq[inputId]||0)+1);
-  tbody.innerHTML='<tr><td colspan="5" class="empty">Leitar...</td></tr>';
-  fetchFeed(raw.replace(/\s+/g,''))
-    .then(function(rows){
-      if(_seq[inputId]!==my)return;              // a newer search won
-      renderList(rows,tbody,wrap,axleLabel);
-    })
-    .catch(function(e){
-      if(_seq[inputId]!==my)return;
-      tbody._filtered=[];
-      tbody.innerHTML='<tr><td colspan="5" class="empty" style="color:#dc2626">'
-        +(e&&e.message?e.message:'Fekk ongar d\u00e1tur')+'</td></tr>';
-    });
+function matchSize(d,q){
+  if(!q)return false;
+  var s=d.stodd.replace(/[^0-9a-zA-Z]/g,'').toLowerCase();
+  return s.indexOf(q)!==-1;
 }
 
-function renderList(rows,tbody,wrap,axleLabel){
-  var filtered=rows.filter(function(d){
-    return activeSeason==='all'||d.season===activeSeason;
+function buildList(inputId,tbodyId,wrapId,axleLabel){
+  var q=document.getElementById(inputId).value.trim().replace(/[\s\/]/g,'').toLowerCase();
+  var tbody=document.getElementById(tbodyId);
+  var wrap=document.getElementById(wrapId);
+  if(q.length<2){
+    tbody.innerHTML='<tr><td colspan="5" class="empty">Skriv st\xf8dd ella EAN</td></tr>';
+    tbody._filtered=[];wrap.style.display='block';return;
+  }
+  var isEan=/^[0-9]{6,}$/.test(q);
+  var filtered=allData.filter(function(d){
+    var eanHit=isEan&&d.ean&&d.ean.indexOf(q)!==-1;
+    if(!eanHit&&activeSeason!=='all'&&d.season!==activeSeason)return false;
+    return eanHit||matchSize(d,q);
   });
   if(!filtered.length){
     tbody.innerHTML='<tr><td colspan="5" class="empty">Eingi dekk funnin</td></tr>';
-    tbody._filtered=[];return;
+    tbody._filtered=[];wrap.style.display='block';return;
   }
   // Cheapest brand first, then cheapest tyre inside each brand. The per-brand
   // minimum is worked out once here; doing it inside the comparator rescanned
@@ -627,25 +616,24 @@ function checkEan(){
   var q=cleanEan(document.getElementById('eanchk').value);
   var out=document.getElementById('eanres');
   if(!q){out.innerHTML='';return;}
-  out.innerHTML='Leitar...';out.style.color='#999';
-  fetchFeed(q).then(function(rows){
-    if(!rows.length){
-      out.innerHTML='Hetta EAN finst ikki \u00ed WooCommerce, ella tad hevur ongan pr\u00eds '
-        +'ella onga st\u00f8dd (pa_breidd / pa_profil / pa_tvormal).';
-      out.style.color='#dc2626';return;
-    }
-    var h=rows[0];
-    var st=h.stockNum>0?(h.stockNum+' stk \u00e1 goymslu')
-          :h.tokt>0?(h.tokt+' stk fjargoymsla')
-          :h.wooIn?'\u00e1 goymslu':h.wooBack?'til \u00fatvegan':'ikki \u00e1 goymslu';
-    out.innerHTML='<b>'+h.name+'</b><br>St\u00f8dd '+h.stodd+' \u00b7 '+st+' \u00b7 slag: '+h.season
-      +'<br>U/MVG '+fi(h.umvg)+' kr. \u00b7 V/MVG '+fi(h.vmvg)+' kr. \u00b7 kostpr\u00edsur '
-      +(h.kost>0?fi(h.kost)+' kr.':'VANTAR');
+  var hit=null;
+  for(var i=0;i<allData.length;i++){if(allData[i].ean===q){hit=allData[i];break;}}
+  if(hit){
+    out.innerHTML='<b>'+hit.name+'</b><br>St\u00f8dd '+hit.stodd+' \u00b7 '+(hit.inStock?'\u00e1 goymslu':'dropship')
+      +' \u00b7 slag: '+hit.season+'<br>U/MVG '+fi(hit.umvg)+' kr. \u00b7 V/MVG '+fi(hit.vmvg)+' kr. \u00b7 kostpr\u00edsur '+(hit.kost>0?fi(hit.kost)+' kr.':'VANTAR');
     out.style.color='#15803d';
-  }).catch(function(e){
-    out.innerHTML='Feila: '+(e&&e.message?e.message:'brast');
+    return;
+  }
+  if(skipDB[q]){
+    var k=skipDB[q];
+    out.innerHTML='<b>Sleppt:</b> '+k.reason+'<br>'+(k.name||'(einki navn)')
+      +'<br>Stock=<b>'+(k.stock||'')+'</b> \u00b7 Goymslupr\u00edsur=<b>'+(k.goymslu||'')+'</b> \u00b7 Regular=<b>'+(k.reg||'')+'</b>'
+      +'<br><span style="color:#999">Attributes: '+(k.attr||'(tómt)')+'</span>';
     out.style.color='#dc2626';
-  });
+    return;
+  }
+  out.innerHTML='Hetta EAN finst als ikki \u00ed arkinum (ella SKU-kolonnan er t\u00f3m fyri ta r\u00f8\u00f0).';
+  out.style.color='#dc2626';
 }
 function checkPw(){
   var v=document.getElementById('pwinput').value;
@@ -660,7 +648,7 @@ function checkPw(){
 function showApp(){
   document.getElementById('gate').style.display='none';
   document.getElementById('app').style.display='block';
-  loadAll();
+  if(!allData.length)loadAll();
 }
 
 window.addEventListener('DOMContentLoaded',function(){
@@ -671,10 +659,8 @@ window.addEventListener('DOMContentLoaded',function(){
     document.getElementById('pwinput').addEventListener('keydown',function(e){if(e.key==='Enter')checkPw();});
     document.getElementById('pwinput').focus();
   }
-  var _dt=null;
-  function onType(){clearTimeout(_dt);_dt=setTimeout(doFilter,350);}
-  document.getElementById('search1').addEventListener('input',onType);
-  document.getElementById('search2').addEventListener('input',onType);
+  document.getElementById('search1').addEventListener('input',doFilter);
+  document.getElementById('search2').addEventListener('input',doFilter);
 });
 
 </script>
