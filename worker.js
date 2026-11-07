@@ -50,6 +50,29 @@ function prow(p){const am=amap(p),r=mnum(p,REMOTE);
 const UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
   +'(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const nap=ms=>new Promise(r=>setTimeout(r,ms));
+const is429=e=>/\b429\b|too many requests/i.test(String(e&&e.message||e||''));
+
+// ---- Kolara-rulla ---------------------------------------------------------
+// Steðgar sidan okkum (429), er tad versta vit kunnu gera at halda a. Hvor
+// fyrispurningur afturat heldur limiteren vakandi, og tá kemur hann aldri
+// aftur. So: eitt 429, og vit roera ikki sidina i COOL sekund. Meðan tad er,
+// svarar Workerin beinanvegin uttan at senda naka, og roknarin visir goymda
+// svarid. Hetta er tad sum ger at tad kemur seg sjalvt aftur.
+const COOL=180;
+const coolKey='cool429';
+async function coolLeft(env){
+  if(!env.FEED)return 0;
+  try{
+    const v=await env.FEED.get(coolKey);
+    if(!v)return 0;
+    const left=Math.round((+v-Date.now())/1000);
+    return left>0?left:0;
+  }catch(e){return 0;}}
+async function coolSet(env){
+  if(!env.FEED)return;
+  try{await env.FEED.put(coolKey,String(Date.now()+COOL*1000),{expirationTtl:COOL+10});}
+  catch(e){}}
+
 async function wc(env,qs,path){
   for(let a=0;;a++){
     const res=await fetch(String(env.WC_SITE).replace(/\/+$/,'')+'/wp-json/wc/v3/'+(path||'products')+'?'+qs,
@@ -177,17 +200,22 @@ async function breiddTermId(env,aid,width){
     return null;});}
 
 /** Every tyre of one width, by indexed attribute query.
- *  Ein breidd kann vera 1.500-3.000 vorur i hesum handli, so 30 siður. */
+ *  Hetta er BERT nodloysnin. 30 siður i einum kosti var tad sum vakti
+ *  limiteren, so: i mesta lagi 8 siður, og 250 ms millum hvorja. Tad er
+ *  hovaligt fyri sidina og rekkur til tad hon er brukt til. */
 async function byWidth(env,aid,tid){
-  const all=[];
-  for(let pg=1;pg<=30;pg++){
+  const all=[];let done=false;
+  for(let pg=1;pg<=8;pg++){
+    if(pg>1)await nap(250);
     const b=await wc(env,'per_page=100&page='+pg+'&status=publish'
       +'&attribute=pa_breidd&attribute_term='+encodeURIComponent(tid)
       +'&_fields='+encodeURIComponent(FIELDS));
-    if(!Array.isArray(b)||!b.length)break;
+    if(!Array.isArray(b)||!b.length){done=true;break;}
     for(const p of b)all.push(p);
-    if(b.length<100)break;}
-  return all;}
+    if(b.length<100){done=true;break;}}
+  // done=false merkir at vit steðgaðu av okkara egna marki, ikki av tí at
+  // breiddin var at enda. Tá kunnu dekk vanta, og tad ma sigast.
+  return{rows:all,partial:!done};}
 
 async function findSize(env,b,p,t){
   const fits=x=>{const m=amap(x);
@@ -219,6 +247,12 @@ async function findSize(env,b,p,t){
     return{rows:rows,term:'store',raw:raw.length,error:null};
   }catch(e){serr=e.message;}
 
+  // Er tad eitt 429, er sidan at steðga OKKUM - ikki hesum eina fyrispurningi.
+  // Tá er tad tad VERSTA vit kunnu gera at fara i nodloysnina og senda upp
+  // til 30 fyrispurningar afturat; tad dypir bert steðgingina. Statt heldur
+  // og lat kallarin seta kolara-rulluna.
+  if(is429(serr))throw new Error('429 '+serr);
+
   // 2. Nodloysn: wc/v3 filtur a pa_breidd aleina. Eingin "search" nokrantid.
   try{
     const aid=await breiddAttrId(env);
@@ -226,8 +260,9 @@ async function findSize(env,b,p,t){
       const tid=await breiddTermId(env,aid,b);
       // Eingin term fyri hesa breidd => stoddin finst ikki. Tomt svar.
       if(tid==null)return{rows:[],term:'pa_breidd='+b+' (eingin term)',raw:0,error:serr};
-      const raw=await byWidth(env,aid,tid);
-      return{rows:raw.filter(fits),term:'pa_breidd='+b,raw:raw.length,error:serr};
+      const w=await byWidth(env,aid,tid);
+      return{rows:w.rows.filter(fits),term:'pa_breidd='+b,raw:w.rows.length,
+        error:serr,partial:w.partial};
     }
   }catch(e){
     throw new Error('Store-API: '+(serr||'-')+' | eginleika-filtur: '+e.message);}
@@ -335,12 +370,28 @@ export default{async fetch(req,env,ctx){
   if(env.FEED&&!dbg){const hit=await env.FEED.get(key,{type:'text'});
     if(hit)return txt(hit,200,c,{'X-Dekk-Cache':'hit'});}
 
+  // Steðgadi sidan okkum nylaga? Tá roer vit hana ikki. Svara beinanvegin,
+  // so roknarin kann visa goymda svarid heldur enn at bida.
+  const left=await coolLeft(env);
+  if(left>0&&!dbg)
+    return txt('FEILUR: heimasidan steðgar okkum (429). Royni aftur um '
+      +left+' sek.',503,c,{'X-Dekk-Cool':String(left),'Retry-After':String(left)});
+
   try{
     const f=await findSize(env,b,p,t),csv=toCsv(f.rows);
     if(dbg)return txt('Stodd: '+b+'/'+p+'R'+t+'\nFundin: '+f.rows.length+' dekk\nLeitiord: '
       +(f.term||'(einki rakti)')+'\nRasvar: '+f.raw+' vorur aftur\n'
       +(f.error?'Feila: '+f.error+'\n':'')+'\n'+csv+'\n',200,c);
-    if(env.FEED&&f.rows.length)ctx.waitUntil(env.FEED.put(key,csv,{expirationTtl:180}).catch(()=>{}));
-    return txt(csv,200,c,{'X-Dekk-Rows':String(f.rows.length),'X-Dekk-Cache':'miss'});
-  }catch(e){return txt('FEILUR: '+e.message,502,c);}
+    // Ein ofullfiggjadur listi ma ALDRI goymast - tá festir hann i 3 min og
+    // tu gevur eitt tilbod ur honum uttan at vita tad.
+    if(env.FEED&&f.rows.length&&!f.partial)
+      ctx.waitUntil(env.FEED.put(key,csv,{expirationTtl:180}).catch(()=>{}));
+    return txt(csv,200,c,{'X-Dekk-Rows':String(f.rows.length),'X-Dekk-Cache':'miss',
+      'X-Dekk-Partial':f.partial?'1':'0'});
+  }catch(e){
+    if(is429(e)){
+      ctx.waitUntil(coolSet(env));
+      return txt('FEILUR: heimasidan steðgar okkum (429). Hvili '+COOL+' sek.',
+        503,c,{'X-Dekk-Cool':String(COOL),'Retry-After':String(COOL)});}
+    return txt('FEILUR: '+e.message,502,c);}
 }};
