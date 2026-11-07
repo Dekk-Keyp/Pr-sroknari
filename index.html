@@ -219,14 +219,23 @@ function setDbg(msg){
 // einum arki. Ser roknarin ongan kostpris i ti sum kom inn, sigur hann tad
 // beint ut heldur enn at visa eitt avansi sum um tad var rett.
 var costSeen=0,costMiss=0;
-function costNote(){
-  if(costSeen+costMiss===0){setDbg('');return;}
-  if(costSeen===0){
-    setDbg('Eingin kostpr\u00edsur \u00ed WooCommerce \u2014 avansi og vinningur '
-      +'eru strikur. Opna '+FEED_URL+'keys, so s\u00e6rt t\u00fa hv\u00f8rji '
-      +'teigs-n\u00f8vn handilin hevur \u2014 send m\u00e6r tey.');
+// Kostprisurin stendur ikki i almenna Store-API'inum, so hann kemur fra
+// Workaranum. Er Workarin blokeradur, hevur roknarin ongan kostpris - og
+// tad ma sigast beint ut, ikki visast sum 0 kr. avansi.
+function costNote(rows){
+  if(!rows||!rows.length){setDbg('');return;}
+  var n=0;
+  for(var i=0;i<rows.length;i++)
+    if(rows[i].kost>0||costDB[rows[i].ean]>0)n++;
+  costSeen=n;costMiss=rows.length-n;
+  if(n===rows.length){setDbg(n+' av '+rows.length+' dekkum hava kostprís');return;}
+  if(n===0&&!workerDead){setDbg('Heinti kostprísir …');return;}
+  if(n===0&&workerDead){
+    setDbg('EINGIN KOSTPRÍSUR — Cloudflare á dekk-keyp.fo blokerar Workaran, '
+      +'og kostprísurin kemur bert hiðani. Avansi og vinningur eru tómir '
+      +'til tað er loyst. Prísir og goymsla eru rætt.');
     return;}
-  setDbg(costSeen+' av '+(costSeen+costMiss)+' dekkum hava kostpr\u00eds \u00far WooCommerce');
+  setDbg(n+' av '+rows.length+' dekkum hava kostprís');
 }
 
 /**
@@ -314,7 +323,7 @@ function parseCatalogue(text){
 // kemur sidsta gooda svarid fram - vid tid a, so tu veitst at tad er goymt
 // og ikki livandi. Tad livir eina viku; ein stodd er ~20 KB.
 var LS='dk_sz_';
-var srcMode='woo',srcNote='',srcAge=0;
+var srcMode='woo',srcNote='',srcAge=0,srcPartial=false;
 function lsPut(key,text){
   try{localStorage.setItem(LS+key,JSON.stringify({t:Date.now(),c:text}));}
   catch(e){/* kagin fullur ella sperradur - ger einki */}
@@ -337,40 +346,181 @@ function ageTxt(ms){
   return dg+(dg===1?' dagur':' dagar')+' s\u00ed\u00f0ani';
 }
 
+// ---- Store-API beinleidis ur vafranum -----------------------------------
+// Cloudflare a dekk-keyp.fo blokerar IP-id hja Cloudflare-Workaranum: /diag
+// visti 429 a ollum niggju royndum, eisini /wp-json/ heilt uttan nykil, og
+// 429'id kom fra "server: cloudflare". Men sami Store-API svarar fullkomiliga
+// fra vanligum neti. So vit spyrja heldur beint hidani.
+//
+// Tad er sami almenni API sum heimasidan sjalv brukar - eingin nykil, einki
+// loynt. Kostprisurin er tad einasta sum ikki stendur i honum.
+var STORE_URL='https://dekk-keyp.fo/wp-json/wc/store/v1/';
+
+function storeAttr(p,tax){
+  var a=(p.attributes||[]);
+  for(var i=0;i<a.length;i++)
+    if(String(a[i].taxonomy||'').toLowerCase()===tax){
+      var t=(a[i].terms||[])[0];
+      if(t)return parseInt(String(t.name||t.slug||'').replace(/[^0-9]/g,''),10)||0;}
+  return 0;
+}
+
+/** Eitt Store-API-svar -> somu teigar sum parseCatalogue gevur. */
+function storeRows(arr){
+  var out=[];
+  for(var i=0;i<(arr||[]).length;i++){
+    var p=arr[i];
+    var breidd=storeAttr(p,'pa_breidd'),profil=storeAttr(p,'pa_profil'),
+        tvormal=storeAttr(p,'pa_tvormal');
+    if(!breidd||!profil||!tvormal)continue;
+
+    // Prisir koma i minstu eind. currency_minor_unit sigur hvussu nogv.
+    var pr=p.prices||{};
+    var div=Math.pow(10,+(pr.currency_minor_unit||0));
+    var regPris=parseFloat(pr.regular_price)/div||0;
+    var salePris=parseFloat(pr.sale_price)/div||0;
+
+    // Heimasidan sigur sjalv hvat stodan er - vit taka sama tekst, so
+    // roknarin og heimasidan kunnu ikki siga sitt hvort.
+    var sa=p.stock_availability||{};
+    var cls=String(sa.class||''),stxt=String(sa.text||'');
+    var fjar=!!p.is_on_backorder||cls.indexOf('backorder')>-1;
+    var tal=parseInt((stxt.match(/\d+/)||[''])[0],10)||0;
+    if(!tal&&p.low_stock_remaining)tal=+p.low_stock_remaining||0;
+
+    var eginGoymsla=!fjar&&!!p.is_in_stock;
+    // Sama regla sum fyrr: a goymslu -> sale, fjargoymsla -> regular - 15.
+    var vmvg=eginGoymsla?(salePris>0?salePris:regPris)
+                        :(regPris>0?regPris-15:0);
+    if(vmvg<=0)continue;
+
+    var name=String(p.name||'');
+    var cats=(p.categories||[]).map(function(c){return c.name;}).join('|');
+    var ean=cleanEan(p.sku);
+    out.push({
+      name:name, ean:ean,
+      stodd:breidd+'/'+profil+'R'+tvormal,
+      breidd:breidd, profil:profil, tvormal:tvormal,
+      vmvg:vmvg, umvg:vmvg>0?Math.round(vmvg/1.25):0,
+      kost:0,                                   // kemur fra Workaranum
+      inStock:eginGoymsla, noPrice:false,
+      tokt:fjar?tal:0,
+      stockNum:eginGoymsla?tal:0,
+      eginGoymsla:eginGoymsla,
+      wooOut:!p.is_in_stock, wooBack:fjar, wooIn:eginGoymsla,
+      season:detectSeason(name,cats,'')
+    });
+  }
+  return out;
+}
+
+function fetchStore(query){
+  var url;
+  if(/^[0-9]{6,}$/.test(query)){
+    url=STORE_URL+'products?per_page=100&sku='+encodeURIComponent(query);
+  }else{
+    var m=query.match(/^(\d{2,3})\D*(\d{2,3})\D*(\d{2})$/);
+    if(!m)return Promise.reject(new Error('skilji ikki stoddina'));
+    url=STORE_URL+'products?per_page=100&attribute_relation=and'
+      +'&attributes[0][attribute]=pa_breidd&attributes[0][slug]='+m[1]
+      +'&attributes[1][attribute]=pa_profil&attributes[1][slug]='+m[2]
+      +'&attributes[2][attribute]=pa_tvormal&attributes[2][slug]='+m[3];
+  }
+  var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
+  var timer=setTimeout(function(){if(ctl)ctl.abort();},15000);
+  return fetch(url,ctl?{signal:ctl.signal}:{})
+    .then(function(r){clearTimeout(timer);
+      if(!r.ok)throw new Error('Store-API '+r.status);
+      return r.json();})
+    .then(function(j){
+      if(!Array.isArray(j))throw new Error('Store-API sendi ikki ein lista');
+      return storeRows(j);})
+    .catch(function(e){clearTimeout(timer);
+      throw new Error(e&&e.name==='AbortError'?'ov long tid':
+        (e&&e.message?e.message:'brast'));});
+}
+
+// Kostprisurin stendur ikki i almenna Store-API'inum. Vit royna Workaran
+// eina ferd; svarar hann ikki, royna vit ikki aftur henda tabban - annars
+// bidar hvort einasta uppslag eftir einum fyrispurningi sum vit vita bilar.
+var workerDead=false;
+function enrichCost(rows,query){
+  if(workerDead||!rows.length)return;
+  var need=false;
+  for(var i=0;i<rows.length;i++)
+    if(!(rows[i].kost>0)&&!costDB[rows[i].ean]){need=true;break;}
+  if(!need)return;
+  fetchWorker(query).then(function(wr){
+    for(var i=0;i<wr.length;i++)
+      if(wr[i].ean&&wr[i].kost>0)costDB[wr[i].ean]=wr[i].kost;
+    if(items.length)renderQuote();
+    costNote(rows);
+  }).catch(function(){
+    // Workarin er ikki at nahenda. Sig tad - annars stendur bert
+    // "0 av 2 dekkum hava kostpris" og tu veitst ikki hvi.
+    workerDead=true;
+    costNote(rows);
+  });
+}
+
 /** Ask the Worker for one size, or one EAN. Answers are small and live. */
 var sizeCache={};
-function fetchFeed(query){
+
+/** Workarin: einasta keldan til kostpris. Kann vera blokeradur. */
+function fetchWorker(query){
   var isEan=/^[0-9]{6,}$/.test(query);
-  var key=(isEan?'e:':'s:')+query;
-  if(sizeCache[key]){srcMode='woo';srcNote='';return Promise.resolve(sizeCache[key]);}
   var url=FEED_URL+(isEan?'?ean=':'?size=')+encodeURIComponent(query)+'&_='+Date.now();
   var ctl=(typeof AbortController!=='undefined')?new AbortController():null;
   var timer=setTimeout(function(){if(ctl)ctl.abort();},20000);
   return fetch(url,ctl?{cache:'no-store',signal:ctl.signal}:{cache:'no-store'})
-    .then(function(r){clearTimeout(timer);return r.text().then(function(t){
-      if(!r.ok)throw new Error(t.slice(0,120));
-      return t;});})
+    .then(function(r){clearTimeout(timer);
+      // Workerin sigur fra um listin er ofullfiggjadur. Tad ma ikki hvorva.
+      srcPartial=r.headers.get('X-Dekk-Partial')==='1';
+      return r.text().then(function(t){
+        if(!r.ok)throw new Error(t.slice(0,120));
+        return t;});})
     .then(function(t){
       if(t.slice(0,6)==='FEILUR')throw new Error(t.slice(0,120));
-      var rows=parseCatalogue(t);
+      return parseCatalogue(t);
+    })
+    .catch(function(e){clearTimeout(timer);
+      throw new Error(e&&e.name==='AbortError'?'ov long tid':
+        (e&&e.message?e.message:'brast'));});
+}
+
+// Rodin: vafrin fyrst (hann er ikki blokeradur), Workarin sum nodloysn,
+// og goymda svarid um hvorki riggar.
+function fetchFeed(query){
+  var isEan=/^[0-9]{6,}$/.test(query);
+  var key=(isEan?'e:':'s:')+query;
+  if(sizeCache[key]){srcPartial=false;return Promise.resolve(sizeCache[key]);}
+
+  return fetchStore(query)
+    .then(function(rows){
       sizeCache[key]=rows;
-      lsPut(key,t);
-      srcMode='woo';srcNote='';srcAge=0;
+      lsPut(key,JSON.stringify(rows));
+      srcMode='store';srcNote='';srcAge=0;srcPartial=false;
+      enrichCost(rows,query);          // kostprisur i bakgrundini
       return rows;
     })
-    .catch(function(e){
-      clearTimeout(timer);
-      var why=e&&e.name==='AbortError'?'ov long ti\u00f0':(e&&e.message?e.message:'brast');
-      // WooCommerce svaradi ikki. Tak sidsta gooda svarid heldur enn einki.
-      var old=lsGet(key);
-      if(old){
-        var rows=parseCatalogue(old.c);
+    .catch(function(e1){
+      var w1=e1&&e1.message?e1.message:'brast';
+      return fetchWorker(query).then(function(rows){
         sizeCache[key]=rows;
-        srcMode='goymt';srcNote=why;srcAge=Date.now()-old.t;
+        srcMode='woo';srcNote='';srcAge=0;
         return rows;
-      }
-      srcMode='einki';srcNote=why;
-      throw new Error(why);
+      }).catch(function(e2){
+        var why=w1+' / Worker: '+(e2&&e2.message?e2.message:'brast');
+        var old=lsGet(key);
+        if(old){
+          var rows=old.c.charAt(0)==='['?JSON.parse(old.c):parseCatalogue(old.c);
+          sizeCache[key]=rows;
+          srcMode='goymt';srcNote=why;srcAge=Date.now()-old.t;
+          return rows;
+        }
+        srcMode='einki';srcNote=why;
+        throw new Error(why);
+      });
     });
 }
 
@@ -431,10 +581,16 @@ function buildList(inputId,tbodyId,wrapId,axleLabel){
     .then(function(rows){
       if(_seq[inputId]!==my)return;              // a newer search won
       renderList(rows,tbody,wrap,axleLabel);
-      if(srcMode==='woo')setSts('Livandi úr WooCommerce','#16a34a');
-      else setSts('GOYMT SVAR, '+ageTxt(srcAge)+' — WooCommerce svaradi ikki '
-        +'('+srcNote+'). Prísir og goymsla kunnu vera broytt.','#b45309');
-      costNote();
+      if(srcMode==='goymt'||srcMode==='einki')
+        setSts('GOYMT SVAR, '+ageTxt(srcAge)+' — WooCommerce svaradi ikki '
+          +'('+srcNote+'). Prísir og goymsla kunnu vera broytt.','#b45309');
+      else if(srcMode==='store')
+        setSts('Livandi úr WooCommerce','#16a34a');
+      else if(srcPartial)
+        setSts('ÓFULLFÍGGJAÐUR LISTI — heimasíðan svaraði bert hálvt, so '
+          +'her kunnu vanta dekk. Trýst Uppfær um eitt bil.','#b45309');
+      else setSts('Livandi úr WooCommerce','#16a34a');
+      costNote(rows);
     })
     .catch(function(e){
       if(_seq[inputId]!==my)return;
@@ -506,7 +662,7 @@ function addSelected(tbodyId){
   if(!boxes.length){alert('Vel nakrar dekk fyrst.');return;}
   Array.prototype.forEach.call(boxes,function(cb){
     var d=filtered[parseInt(cb.dataset.i)];
-    items.push({n:qName(d),ean:d.ean,u:d.umvg,m:d.vmvg,k:d.kost});
+    items.push({n:qName(d),ean:d.ean,u:d.umvg,m:d.vmvg,k:d.kost||costDB[d.ean]||0});
   });
   renderQuote();
   Array.prototype.forEach.call(tbody.querySelectorAll('.rowchk'),function(cb){cb.checked=false;});
